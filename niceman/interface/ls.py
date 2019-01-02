@@ -13,6 +13,8 @@ __docformat__ = 'restructuredtext'
 
 from six.moves.configparser import NoSectionError
 
+from pyout import Tabular
+
 from .base import Interface
 import niceman.interface.base # Needed for test patching
 from ..support.param import Parameter
@@ -25,6 +27,24 @@ from ..dochelpers import exc_str
 
 from logging import getLogger
 lgr = getLogger('niceman.api.ls')
+
+
+def _get_status(resource, refresh):
+    try:
+        if refresh:
+            resource.connect()
+        if not resource.id:
+            # continue  # A missing ID indicates a deleted resource.
+            resource.id = 'DELETED'
+            resource.status = 'N/A'
+        report_status = resource.status
+    except Exception as exc:
+        lgr.log(5, "%s resource query error: %s", resource.name, exc_str(exc))
+        report_status = "N/A (QUERY-ERROR)"
+        for f in 'id', 'status':
+            if not getattr(resource, f):
+                setattr(resource, f, "?")
+    return report_status
 
 
 class Ls(Interface):
@@ -54,45 +74,46 @@ class Ls(Interface):
 
     @staticmethod
     def __call__(verbose=False, refresh=False):
-        id_length = 19  # todo: make it possible to output them long
-        template = '{:<20} {:<20} {:<%(id_length)s} {:<10}' % locals()
-        ui.message(template.format('RESOURCE NAME', 'TYPE', 'ID', 'STATUS'))
-        ui.message(template.format('-------------', '----', '--', '------'))
+        if refresh:
+            # If refreshing, query status asynchronously.
+            def status_fn(resource):
+                def fn():
+                    return _get_status(resource, True)
+                return fn
+        else:
+            def status_fn(resource):
+                return _get_status(resource, False)
 
         manager = get_manager()
-        for name in sorted(manager):
-            if name.startswith('_'):
-                continue
 
-            # if refresh:
-            try:
-                resource = manager.get_resource(name, resref_type="name")
-            except ResourceNotFoundError:
-                lgr.warning("Manager did not return a resource for %r", name)
-                continue
+        out = Tabular(
+            ["name", "type", "id", "status"],
+            style={
+                "header_": {"underline": True,
+                            "transform": str.upper},
+                "status": {"color":
+                           {"lookup": {"running": "green",
+                                       "stopped": "red",
+                                       "N/A (QUERY-ERROR)": "red"}},
+                           "bold":
+                           {"lookup": {"N/A (QUERY-ERROR)": "red"}}}})
 
-            try:
-                if refresh:
-                    resource.connect()
-                if not resource.id:
-                    # continue  # A missing ID indicates a deleted resource.
-                    resource.id = 'DELETED'
-                    resource.status = 'N/A'
-                report_status = resource.status
-            except Exception as exc:
-                lgr.error("%s resource query error: %s", name, exc_str(exc))
-                report_status = "N/A (QUERY-ERROR)"
-                for f in 'id', 'status':
-                    if not getattr(resource, f):
-                        setattr(resource, f, "?")
-            msgargs = (
-                name,
-                resource.type,
-                resource.id[:id_length] if resource.id else '',
-                report_status,
-            )
-            ui.message(template.format(*msgargs))
-            lgr.debug('list result: {}, {}, {}, {}'.format(*msgargs))
+        with out:
+            for name in sorted(manager):
+                if name.startswith('_'):
+                    continue
+
+                try:
+                    resource = manager.get_resource(name, resref_type="name")
+                except ResourceNotFoundError:
+                    lgr.warning("Manager did not return a resource for %r",
+                                name)
+                    continue
+
+                out([name,
+                     resource.type,
+                     resource.id,
+                     status_fn(resource)])
 
         # if not refresh:
         #     ui.message('(Use --refresh option to view current status.)')
