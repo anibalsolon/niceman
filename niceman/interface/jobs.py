@@ -86,26 +86,46 @@ def _resurrect_orc(job):
 # Action functions
 
 
-def show_oneline(job, status=False):
-    """Display `job` as a single summary line.
+def get_oneline_info(job, status=False):
+    """Return record for oneline summary.
     """
-    fmt = "{status}{j[jobid]} on {j[resource_name]} via {j[submitter]}$ {cmd}"
+    record = {k: job[k] for k in ["jobid", "command_str", "submitter"]}
     if status:
-        orc = _resurrect_orc(job)
-        orc_status = orc.status
-        _, queried_status = orc.submitter.status
-        if orc_status == queried_status:
-            # Drop repeated status (e.g., our and condor's "running").
-            queried_status = None
-        stat = "[status: {}{}] ".format(
-            orc_status,
-            ", " + queried_status if queried_status else "")
-    else:
-        stat = ""
-    cmd = job["command_str"]
-    print(fmt
-          .format(status=stat, j=job,
-                  cmd=cmd[:47] + "..." if len(cmd) > 50 else cmd))
+        def fn():
+            orc = _resurrect_orc(job)
+            status = orc.status
+            queried = orc.submitter.status[1] or ""
+            if queried:
+                status += " ({})".format(queried)
+            return status
+        record["status"] = fn
+    return record
+
+
+def list_jobs(jobs, status=False):
+    """Display a one-line summary for each job.
+    """
+    from collections import OrderedDict
+    from pyout import Tabular
+
+    columns = OrderedDict([("jobid", "job ID"),
+                           ("submitter", "submitter")])
+    if status:
+        columns["status"] = "status (submitter)"
+    columns["command_str"] = "command"
+
+    out = Tabular(
+        columns,
+        style={"header_": {"underline": True},
+               "default_": {"width": {"marker": u"…"}},
+               "status":
+               {"color": {"lookup":
+                          {"succeeded": "green"}},
+                "width": {"min": len("succeeded")}}})
+
+    with out:
+        for job in jobs:
+            out(get_oneline_info(job, status=status))
 
 
 def show(job, status=False):
@@ -206,14 +226,15 @@ class Jobs(Interface):
         else:
             jobs = [_load(job_files[i]) for i in matched_ids or job_files]
 
-            if action == "fetch" or (action == "auto" and matched_ids):
-                fn = fetch
-            elif action == "list" or action == "auto":
-                fn = partial(show_oneline, status=status)
-            elif action == "show":
-                fn = partial(show, status=status)
+            if action == "list" or (action == "auto" and not matched_ids):
+                list_jobs(jobs, status)
             else:
-                raise RuntimeError("Unknown action: {}".format(action))
+                if action == "fetch" or action == "auto":
+                    fn = fetch
+                elif action == "show":
+                    fn = partial(show, status=status)
+                else:
+                    raise RuntimeError("Unknown action: {}".format(action))
 
-            for job in jobs:
-                fn(job)
+                for job in jobs:
+                    fn(job)
