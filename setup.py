@@ -60,6 +60,7 @@ requires = {
         'requests',
         'reprozip; sys_platform=="linux" or sys_platform=="linux2"',
         'rpaths',
+        'jinja2',
     ],
     'debian': [
         'python-debian',

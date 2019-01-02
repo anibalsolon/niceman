@@ -28,13 +28,14 @@ _group_dataset = (
         ('niceman.interface.stop', 'Stop'),
         ('niceman.interface.login', 'Login'),
         ('niceman.interface.execute', 'Execute'),
-        # ('niceman.distribution.run', 'Run'),
+        ('niceman.interface.run', 'Run'),
     ])
 
 _group_misc = (
     'Miscellaneous commands',
     [
         ('niceman.interface.ls', 'Ls'),
+        ('niceman.interface.jobs', 'Jobs'),
         ('niceman.interface.backend_parameters', 'BackendParameters'),
         # ('niceman.interface.trace', 'Trace'),
         # ('niceman.interface.shell', 'Shell'),
